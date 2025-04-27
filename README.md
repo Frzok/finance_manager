@@ -31,3 +31,26 @@
 ```bash
 git clone https://github.com/Frzok/finance_manager.git
 cd finance_manager
+```
+
+### 2. Создать виртуальное окружение:
+
+```bash
+python -m venv .venv
+```
+### 3. Активировать виртуальное окружение:
+
+```bash
+.venv\\Scripts\\activate
+```
+
+### 4. Установить зависимости:
+
+```bash
+pip install -r requirements.txt
+```
+### 5. Запустить приложение:
+
+```bash
+python "Finance UI App.py"
+```
