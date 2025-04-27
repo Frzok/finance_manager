@@ -1,4 +1,3 @@
-# finance_manager
 # Finance Manager
 
 Приложение для контроля личных финансов в современном UI-стиле Discord.
