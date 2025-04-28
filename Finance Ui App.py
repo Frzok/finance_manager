@@ -4,9 +4,16 @@ import datetime
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-# Настройка внешнего вида
-ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("blue")
+# Настройка внешнего вида Apple-style
+ctk.set_appearance_mode("dark")  # Темная тема
+ctk.set_default_color_theme("blue")  # Базовый голубой оттенок
+
+# Основные цвета
+background_color = "#1C1C1E"  # Тёмный фон как в iOS
+button_color = "#2C2C2E"      # Тёмные кнопки
+hover_color = "#3A7CA5"        # Голубая подсветка при наведении
+text_color = "#FFFFFF"         # Белый текст
+
 
 # База данных
 conn = sqlite3.connect('finance.db')
@@ -16,13 +23,15 @@ c = conn.cursor()
 app = ctk.CTk()
 app.title("Финансовый помощник")
 app.geometry("1000x700")
+app.configure(fg_color=background_color)
 
 # Основные фреймы
-sidebar = ctk.CTkFrame(app, width=200, height=700, corner_radius=0)
+sidebar = ctk.CTkFrame(app, width=200, height=700, corner_radius=12, fg_color=background_color)
 sidebar.pack(side="left", fill="y")
 
-content = ctk.CTkFrame(app, width=800, height=700, corner_radius=0)
+content = ctk.CTkFrame(app, width=800, height=700, corner_radius=12, fg_color=background_color)
 content.pack(side="right", fill="both", expand=True)
+
 
 # Функция очистки основной зоны
 
@@ -99,6 +108,47 @@ def load_expense_chart():
     else:
         label = ctk.CTkLabel(content, text="Нет данных для графика.", font=("Arial", 20))
         label.pack(pady=20)
+def load_edit_payment_category():
+    clear_content()
+    label = ctk.CTkLabel(content, text="Изменить категорию платежа", font=("Arial", 20))
+    label.pack(pady=10)
+
+    # Загружаем все платежи
+    c.execute("SELECT id, name FROM monthly_payments")
+    payments = c.fetchall()
+
+    if not payments:
+        label_empty = ctk.CTkLabel(content, text="Нет платежей для изменения.", font=("Arial", 16))
+        label_empty.pack(pady=10)
+        return
+
+    # Формируем удобный список для выбора
+    payment_options = [f"ID {pid}: {pname}" for pid, pname in payments]
+
+    payment_box = ctk.CTkComboBox(content, values=payment_options, width=400)
+    payment_box.pack(pady=10)
+
+    category_options = ["Продукты", "Транспорт", "Развлечения", "Здоровье", "Коммуналка", "Другое"]
+    category_box = ctk.CTkComboBox(content, values=category_options)
+    category_box.pack(pady=10)
+
+    def update_category():
+        selected_payment = payment_box.get()
+        selected_category = category_box.get()
+
+        if not selected_payment or not selected_category:
+            show_alert("Выберите платеж и категорию!", color="red")
+            return
+
+        # Получить ID платежа из текста "ID 5: Название"
+        pid = selected_payment.split(":")[0].replace("ID", "").strip()
+
+        c.execute("UPDATE monthly_payments SET category = ? WHERE id = ?", (selected_category, pid))
+        conn.commit()
+        show_alert("Категория успешно обновлена!")
+
+    button_save = ctk.CTkButton(content, text="Сохранить изменения", command=update_category)
+    button_save.pack(pady=10)
 
 
 def load_monthly_history():
@@ -220,13 +270,55 @@ def load_mark_payment():
 
     def mark_paid():
         pid = entry_id.get()
-        c.execute("UPDATE monthly_payments SET paid = 1 WHERE id = ?", (pid,))
-        conn.commit()
-        show_alert("Платеж отмечен как оплаченный!")
+        c.execute("SELECT name, amount, category FROM monthly_payments WHERE id = ?", (pid,))
+        payment = c.fetchone()
+
+        if payment:
+            name, amount, category = payment
+            today = datetime.date.today().isoformat()
+
+            c.execute("UPDATE monthly_payments SET paid = 1 WHERE id = ?", (pid,))
+            c.execute("INSERT INTO expenses (amount, date, category) VALUES (?, ?, ?)", (amount, today, category))
+            conn.commit()
+
+            show_alert("Платеж отмечен как оплаченный и добавлен в расходы!")
+        else:
+            show_alert("Платеж с таким ID не найден.", color="red")
 
     button_confirm = ctk.CTkButton(content, text="Отметить оплачено", command=mark_paid)
     button_confirm.pack(pady=10)
 
+
+def load_add_payment():
+    clear_content()
+    label = ctk.CTkLabel(content, text="Добавить обязательный платеж", font=("Arial", 20))
+    label.pack(pady=10)
+
+    entry_name = ctk.CTkEntry(content, placeholder_text="Название платежа")
+    entry_name.pack(pady=10)
+
+    entry_amount = ctk.CTkEntry(content, placeholder_text="Сумма платежа")
+    entry_amount.pack(pady=10)
+
+    categories = ["Продукты", "Транспорт", "Развлечения", "Здоровье", "Коммуналка", "Другое"]
+    category_box = ctk.CTkComboBox(content, values=categories)
+    category_box.pack(pady=10)
+
+    def save_payment():
+        name = entry_name.get()
+        try:
+            amount = float(entry_amount.get())
+        except ValueError:
+            show_alert("Введите корректную сумму!", color="red")
+            return
+        category = category_box.get()
+
+        c.execute("INSERT INTO monthly_payments (name, amount, paid, category) VALUES (?, ?, 0, ?)", (name, amount, category))
+        conn.commit()
+        show_alert("Платеж успешно добавлен!")
+
+    button_save = ctk.CTkButton(content, text="Сохранить платеж", command=save_payment)
+    button_save.pack(pady=10)
 
 def load_show_savings():
     clear_content()
@@ -247,36 +339,64 @@ def load_show_savings():
     progress_bar.pack(pady=10)
     progress_bar.set(progress)
 
+def create_sidebar_button(text, command):
+    return ctk.CTkButton(
+        sidebar,
+        text=text,
+        command=command,
+        width=180,
+        height=40,
+        fg_color=button_color,
+        hover_color=hover_color,
+        text_color=text_color,
+        corner_radius=12,
+        font=("Arial", 16)
+    )
+
 # Кнопки на боковой панели
-button1 = ctk.CTkButton(sidebar, text="Добавить доход", command=load_add_income)
+button1 = create_sidebar_button("Добавить доход", load_add_income)
 button1.pack(pady=10, padx=10)
 
-button2 = ctk.CTkButton(sidebar, text="Добавить расход", command=load_add_expense)
+button2 = create_sidebar_button("Добавить расход", load_add_expense)
 button2.pack(pady=10, padx=10)
 
-button3 = ctk.CTkButton(sidebar, text="График расходов", command=load_expense_chart)
+button3 = create_sidebar_button("График расходов", load_expense_chart)
 button3.pack(pady=10, padx=10)
 
-button4 = ctk.CTkButton(sidebar, text="История по месяцу", command=load_monthly_history)
+button4 = create_sidebar_button("История по месяцу", load_monthly_history)
 button4.pack(pady=10, padx=10)
 
-button5 = ctk.CTkButton(sidebar, text="Анализ бюджета", command=load_budget_analysis)
+button5 = create_sidebar_button("Анализ бюджета", load_budget_analysis)
 button5.pack(pady=10, padx=10)
 
-button6 = ctk.CTkButton(sidebar, text="Показать кредиты", command=load_show_credits)
+button6 = create_sidebar_button("Показать кредиты", load_show_credits)
 button6.pack(pady=10, padx=10)
 
-button7 = ctk.CTkButton(sidebar, text="Показать баланс", command=load_show_balance)
+button7 = create_sidebar_button("Показать баланс", load_show_balance)
 button7.pack(pady=10, padx=10)
 
-button8 = ctk.CTkButton(sidebar, text="Неоплаченные платежи", command=load_unpaid_payments)
+button8 = create_sidebar_button("Неоплаченные платежи", load_unpaid_payments)
 button8.pack(pady=10, padx=10)
 
-button9 = ctk.CTkButton(sidebar, text="Оплатить платеж", command=load_mark_payment)
+button9 = create_sidebar_button("Оплатить платеж", load_mark_payment)
 button9.pack(pady=10, padx=10)
 
-button10 = ctk.CTkButton(sidebar, text="Накопления", command=load_show_savings)
+button10 = create_sidebar_button("Накопления", load_show_savings)
 button10.pack(pady=10, padx=10)
+
+button11 = create_sidebar_button("Добавить платеж", load_add_payment)
+button11.pack(pady=10, padx=10)
+
+button12 = create_sidebar_button("Изменить категорию платежа", load_edit_payment_category)
+button12.pack(pady=10, padx=10)
+
+# Проверка и добавление колонки 'category' в monthly_payments
+try:
+    c.execute("ALTER TABLE monthly_payments ADD COLUMN category TEXT DEFAULT 'Другое'")
+    conn.commit()
+except sqlite3.OperationalError:
+    # Если колонка уже есть, просто пропускаем
+    pass
 
 
 # Запуск приложения
